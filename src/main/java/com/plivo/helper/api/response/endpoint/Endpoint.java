@@ -26,6 +26,9 @@ public class Endpoint {
     @SerializedName("api_id")
     public String apiId ;
     
+    @SerializedName("sip_registered")
+    public String sipRegistered ;
+    
     public Map<String, Object> error ;
     
     public String message;
