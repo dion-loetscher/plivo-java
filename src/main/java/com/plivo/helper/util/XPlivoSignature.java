@@ -52,5 +52,4 @@ public class XPlivoSignature {
 
 		return signature;
 	}
-	}
 }
