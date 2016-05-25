@@ -3,6 +3,8 @@ package com.plivo.helper.tools;
 import java.util.LinkedHashMap;
 import java.util.Set;
 import java.util.TreeSet;
+import java.util.logging.Level;
+import java.util.logging.Logger;
 
 import com.plivo.helper.api.client.RestAPI;
 import com.plivo.helper.api.client.RestAPIFactory;
@@ -13,68 +15,69 @@ import com.plivo.helper.exception.PlivoException;
 
 public class EndPointCleaner {
 
-	private RestAPIFactory factory;
-	
-	private static final int TIME_TO_REGISTER = 1;
+	private RestAPIFactory		factory;
 
-	public static void main(String[] args) {
+	private int					timeToRegister	= 1;
+
+	public static final String	CLASS			= EndPointCleaner.class.getName();
+	public static final Logger	logger			= Logger.getLogger(CLASS);
+
+	public static void main(String[] args) throws PlivoException {
 		if (args.length != 3 || args[0].isEmpty() || args[1].isEmpty() || args[2].isEmpty()) {
 			printUsageAndExit();
 		}
 
 		EndPointCleaner cleaner = new EndPointCleaner(args[0], args[1], args[2]);
 		// cleaner.testMakeEndpoint();
+		cleaner.removeAllEndpoints();
+	}
+
+	public void setTimeToRegister(int t) {
+		timeToRegister = t;
+	}
+
+	public void removeAllEndpoints() throws PlivoException {
+		logger.entering(CLASS, "removeAllEndpoints");
 		int totalRemoved = 0;
 		while (true) {
-			Set<String> endPointsToRemove = cleaner.getUnregisteredEndpoints();
+			Set<String> endPointsToRemove = this.getUnregisteredEndpoints();
 			if (endPointsToRemove.size() == 0) {
-				System.out.println("No endpoints to remove. Done.");
+				logger.info("No endpoints to remove. Done.");
 				return;
 			} else {
-				System.out.printf("Found %d endpoints to remove. \n", endPointsToRemove.size());
+				logger.log(Level.INFO, "Found {0} endpoints to remove. \n", endPointsToRemove.size());
 			}
-			System.out.println("Sleeping to give time for endpoints to register if they were meant to.");
-			System.out.print("Seconds remaining: ");
-			for (int i = TIME_TO_REGISTER; i > 0; --i) {
+			logger.info("Sleeping to give time for endpoints to register if they were meant to.");
+			logger.log(Level.INFO, "Sleeping for {0} seconds", timeToRegister);
+			for (int i = timeToRegister; i > 0; --i) {
 				System.out.print(i);
 				try {
-					Thread.sleep(500);
-					System.out.print(" .. ");
-					Thread.sleep(500);
+					Thread.sleep(1000);
 				} catch (InterruptedException e) {
-					// TODO Auto-generated catch block
 					e.printStackTrace();
 				}
-				if (i == 1) {
-					System.out.println(0);
-				}
 			}
-			cleaner.removeRegisteredFromSet(endPointsToRemove);
-			int removed = cleaner.removeEndpoints(endPointsToRemove);
+			this.removeRegisteredFromSet(endPointsToRemove);
+			int removed = this.removeEndpoints(endPointsToRemove);
 			totalRemoved += removed;
-			System.out.printf("Removed %d endpoints, total removed: %d\n", removed, totalRemoved);
+			logger.info("Removed " + removed + " endpoints, total removed: " + totalRemoved);
 			if (removed == 0) {
 				break;
 			}
 		}
-		System.out.println("Done");
-
+		logger.exiting(CLASS, "removeAllEndpoints");
 	}
 
 	public EndPointCleaner(String authTkn, String authId, String version) {
 		factory = new RestAPIFactory(authId, authTkn, version);
-		System.out.println("Cleaner Instantiated");
 	}
 
-	public void removeRegisteredFromSet(Set<String> endpoints) {
-		int startSize = endpoints.size();
-		System.out.println("Removing endpoints from set which have now registered");
+	public void removeRegisteredFromSet(Set<String> endpoints) throws PlivoException {
 		Set<String> toKeep = new TreeSet<String>();
 		for (String endpoint : endpoints) {
 			RestAPI api = factory.getAPI();
 			LinkedHashMap<String, String> parameters = new LinkedHashMap<String, String>();
 			parameters.put("endpoint_id", endpoint);
-			try {
 				Endpoint details = api.getEndpoint(parameters);
 				if (details.error != null && !details.error.isEmpty()) {
 					throw new PlivoException(details.error.toString());
@@ -82,59 +85,41 @@ public class EndPointCleaner {
 				if (details.sipRegistered != null && details.sipRegistered.toLowerCase().equals("false")) {
 					toKeep.add(endpoint);
 				}
-			} catch (PlivoException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
 		}
 		endpoints.retainAll(toKeep);
-		System.out.println("Removed " + (startSize - endpoints.size()) + " endpoints from set");
 	}
 
-	public Set<String> getUnregisteredEndpoints() {
-		System.out.println("Getting unregistered endpoints");
+	public Set<String> getUnregisteredEndpoints() throws PlivoException {
 		Set<String> oldEndpoints = new TreeSet<String>();
 		RestAPI api = factory.getAPI();
-		try {
-			LinkedHashMap<String, String> parameters = new LinkedHashMap<String, String>();
-			EndpointFactory endpoints = api.getEndpoints(parameters);
-			if (endpoints.error != null && !endpoints.error.isEmpty()) {
-				throw new PlivoException(endpoints.error);
-			}
-			if (endpoints.endpointList != null) {
-				for (Endpoint endpoint : endpoints.endpointList) {
-					if (endpoint != null) {
-						if (endpoint.sipRegistered != null && endpoint.sipRegistered.toLowerCase().equals("false")) {
-							oldEndpoints.add(endpoint.endpointId);
-						}
+		LinkedHashMap<String, String> parameters = new LinkedHashMap<String, String>();
+		EndpointFactory endpoints = api.getEndpoints(parameters);
+		if (endpoints.error != null && !endpoints.error.isEmpty()) {
+			throw new PlivoException(endpoints.error);
+		}
+		if (endpoints.endpointList != null) {
+			for (Endpoint endpoint : endpoints.endpointList) {
+				if (endpoint != null) {
+					if (endpoint.sipRegistered != null && endpoint.sipRegistered.toLowerCase().equals("false")) {
+						oldEndpoints.add(endpoint.endpointId);
 					}
 				}
 			}
-		} catch (PlivoException e) {
-			// TODO Auto-generated catch block
-			e.printStackTrace();
 		}
 		return oldEndpoints;
 	}
 
-	public int removeEndpoints(Set<String> endpoints) {
-		System.out.println("Removing old endpoints in: " + endpoints.toString());
+	public int removeEndpoints(Set<String> endpoints) throws PlivoException {
 		int totalDeleted = 0;
 		for (String endpoint : endpoints) {
 			RestAPI api = factory.getAPI();
 			LinkedHashMap<String, String> parameters = new LinkedHashMap<String, String>();
 			parameters.put("endpoint_id", endpoint);
-			System.out.printf("Attempting to delete endpoint: %s\n", endpoint);
-			try {
-				GenericResponse response = api.deleteEndpoint(parameters);
-				if (response.error != null && !response.error.isEmpty()) {
-					throw new PlivoException(response.error);
-				}
-				++totalDeleted;
-			} catch (PlivoException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
+			GenericResponse response = api.deleteEndpoint(parameters);
+			if (response.error != null && !response.error.isEmpty()) {
+				throw new PlivoException(response.error);
 			}
+			++totalDeleted;
 		}
 		return totalDeleted;
 	}
@@ -144,7 +129,7 @@ public class EndPointCleaner {
 		System.exit(0);
 	}
 
-	public void testMakeEndpoint() {
+	public void testMakeEndpoint() throws PlivoException {
 
 		LinkedHashMap<String, String> parameters = new LinkedHashMap<String, String>();
 		parameters.put("username", "merp");
@@ -152,13 +137,8 @@ public class EndPointCleaner {
 		parameters.put("alias", "test");
 		for (int i = 0; i < 250; ++i) {
 			RestAPI api = factory.getAPI();
-			try {
-				api.createEndpoint(parameters);
-				System.out.println("Made endpoint #" + i);
-			} catch (PlivoException e) {
-				// TODO Auto-generated catch block
-				e.printStackTrace();
-			}
+			api.createEndpoint(parameters);
+			System.out.println("Made endpoint #" + i);
 		}
 
 	}
